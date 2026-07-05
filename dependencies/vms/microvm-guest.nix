@@ -148,6 +148,10 @@ nixpkgs.lib.nixosSystem {
             TTYPath = "/dev/tty7";
             Restart = "always";
             RestartSec = "2s";
+            # Surface waypipe's logs on the guest console (hvc0) so the host
+            # launcher's captured console shows the vsock handshake / errors.
+            StandardOutput = "journal+console";
+            StandardError = "journal+console";
           };
           environment = {
             XDG_RUNTIME_DIR = "/run/user/1000";
@@ -157,10 +161,13 @@ nixpkgs.lib.nixosSystem {
           };
           script = ''
             mkdir -p "$XDG_RUNTIME_DIR"
+            echo "[wawona-session] waypipe $(${pkgs.waypipe}/bin/waypipe --version 2>&1 | head -1)" >&2
+            echo "[wawona-session] connecting waypipe server to host vsock CID 2 port ${toString vsockPort}" >&2
             # waypipe's guest->host vsock form: `--vsock -s <port> server` with
             # the CID omitted connects out to the host (CID 2). vfkit (default
             # listen mode) forwards that to the host-side unix socket.
             exec ${pkgs.waypipe}/bin/waypipe \
+              --debug \
               --vsock -s ${toString vsockPort} \
               server -- ${pkgs.sway}/bin/sway
           '';
