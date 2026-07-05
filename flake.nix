@@ -13,10 +13,9 @@
     microvm.url = "github:microvm-nix/microvm.nix";
     microvm.inputs.nixpkgs.follows = "nixpkgs";
     # Mobile (iOS/iPadOS/tvOS/visionOS) + Android jitless QEMU-TCTI engine source:
-    # the aligned UTM fork (wwn-utm). Local path input while pre-release; switched
-    # to github:Wawona/wwn-utm once stable. Consumed by mobile/engine.nix +
-    # android/engine.nix (their `wwn-utm` arg).
-    wwn-utm.url = "path:/Users/8amps/Wawona/UTM";
+    # the aligned UTM fork (wwn-utm) = github:Wawona/UTM. Consumed by
+    # mobile/engine.nix + android/engine.nix (their `wwn-utm` arg).
+    wwn-utm.url = "github:Wawona/UTM";
     wwn-utm.inputs.nixpkgs.follows = "nixpkgs";
   };
 
