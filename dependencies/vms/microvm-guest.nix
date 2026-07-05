@@ -15,10 +15,14 @@
 #   * vsock plumbing, Rosetta, virtiofs shares and NAT networking are all handled
 #     by the microvm module.
 #
-# vsock topology (matches the proven dotfiles bridge):
-#   guest:  waypipe --socket vsock:2:<port> server -- sway     (CID 2 == host)
-#   host :  vfkit exposes it as <hostName>-vsock.sock (a unix socket)
-#   host :  waypipe client + socat relay that socket into Wawona's wayland-0
+# vsock topology (vfkit default "listen" mode == guest->host):
+#   guest:  waypipe --vsock -s <port> server -- sway   (CID omitted => connect
+#           out to host CID 2 on <port>; this is waypipe's documented guest->host
+#           form, NOT `--socket vsock:2:<port>` which is a literal unix path)
+#   vfkit:  --device virtio-vsock,port=<port>,socketURL=<unix sock> (listen):
+#           when the guest connects to vsock <port>, vfkit connects to the host
+#           unix socket, which the host bridge is LISTENING on.
+#   host :  socat UNIX-LISTEN:<unix sock> -> waypipe client -> Wawona wayland-0
 #
 # NOTE: the vfkit runner hardcodes vsock port 1024, so `vsockPort` must stay 1024
 # unless microvm.nix's runner gains a configurable port.
@@ -153,8 +157,11 @@ nixpkgs.lib.nixosSystem {
           };
           script = ''
             mkdir -p "$XDG_RUNTIME_DIR"
+            # waypipe's guest->host vsock form: `--vsock -s <port> server` with
+            # the CID omitted connects out to the host (CID 2). vfkit (default
+            # listen mode) forwards that to the host-side unix socket.
             exec ${pkgs.waypipe}/bin/waypipe \
-              --socket vsock:2:${toString vsockPort} \
+              --vsock -s ${toString vsockPort} \
               server -- ${pkgs.sway}/bin/sway
           '';
         };
