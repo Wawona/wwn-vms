@@ -134,9 +134,15 @@ nixpkgs.lib.nixosSystem {
         ];
 
         # Auto-forward the guest Wayland session to the host on boot: waypipe
-        # server binds vsock port <vsockPort>; the host bridge relays it into
-        # Wawona. `sway` runs headless (wlroots headless backend) since the pixels
-        # are streamed by waypipe, not scanned out locally.
+        # server connects out to the host over vsock <vsockPort>; the host bridge
+        # relays it into Wawona, which IS the compositor.
+        #
+        # IMPORTANT: waypipe forwards Wayland *clients*, not compositors. Wawona is
+        # the compositor, so the guest runs a client app (foot) whose window
+        # appears as a native Wawona window. Running a nested compositor here would
+        # require it to act as a Wayland *client* of waypipe's display (e.g. sway
+        # with WLR_BACKENDS=wayland) — that is the Phase-29 wwn-* nested-compositor
+        # path; for the base p26 machine we forward a client directly.
         systemd.services.wawona-session = {
           description = "Wawona Wayland session forwarded to host over vsock";
           wantedBy = [ "multi-user.target" ];
@@ -155,21 +161,20 @@ nixpkgs.lib.nixosSystem {
           };
           environment = {
             XDG_RUNTIME_DIR = "/run/user/1000";
-            WLR_BACKENDS = "headless";
-            WLR_RENDERER = "pixman";
-            WLR_NO_HARDWARE_CURSORS = "1";
           };
           script = ''
             mkdir -p "$XDG_RUNTIME_DIR"
             echo "[wawona-session] waypipe $(${pkgs.waypipe}/bin/waypipe --version 2>&1 | head -1)" >&2
             echo "[wawona-session] connecting waypipe server to host vsock CID 2 port ${toString vsockPort}" >&2
-            # waypipe's guest->host vsock form: `--vsock -s <port> server` with
-            # the CID omitted connects out to the host (CID 2). vfkit (default
-            # listen mode) forwards that to the host-side unix socket.
+            # waypipe's guest->host vsock form: `--vsock -s <port> server` with the
+            # CID omitted connects out to the host (CID 2). vfkit (default listen
+            # mode) forwards that to the host-side unix socket. The forwarded
+            # command must be a Wayland *client* (foot), whose window appears in
+            # Wawona as a native window.
             exec ${pkgs.waypipe}/bin/waypipe \
               --debug \
               --vsock -s ${toString vsockPort} \
-              server -- ${pkgs.sway}/bin/sway
+              server -- ${pkgs.foot}/bin/foot
           '';
         };
 
