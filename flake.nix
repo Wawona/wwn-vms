@@ -72,6 +72,10 @@
       # take `wwn-utm` and use wwn-utm.lib for the QEMU-TCTI sources/patches).
       lib.wwn-utm = wwn-utm;
 
+      # Per-target VM capability matrix (with eval-time invariant asserts).
+      # `nix eval .#lib.capabilities` is the VM capability-lane gate.
+      lib.capabilities = import ./capabilities.nix;
+
       # Bundled minimal NixOS guest for the mobile QEMU-TCTI engine
       # (iOS/iPadOS/visionOS/tvOS). Evaluable everywhere; the kernel/rootfs
       # artifacts build on the aarch64-linux builder and ship as ODR/bundled data
