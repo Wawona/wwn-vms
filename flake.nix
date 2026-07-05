@@ -12,13 +12,15 @@
     # to build the guest + drive vfkit (Virtualization.framework).
     microvm.url = "github:microvm-nix/microvm.nix";
     microvm.inputs.nixpkgs.follows = "nixpkgs";
-    # Mobile (iOS/iPadOS/tvOS/visionOS) + Android use a jitless QEMU-TCTI engine
-    # sourced from the UTM fork. Added as a flake input once that fork is aligned
-    # to `wwn-utm` (see align-wwn-utm); referenced by README until then.
-    # wwn-utm.url = "github:Wawona/wwn-utm";
+    # Mobile (iOS/iPadOS/tvOS/visionOS) + Android jitless QEMU-TCTI engine source:
+    # the aligned UTM fork (wwn-utm). Local path input while pre-release; switched
+    # to github:Wawona/wwn-utm once stable. Consumed by mobile/engine.nix +
+    # android/engine.nix (their `wwn-utm` arg).
+    wwn-utm.url = "path:/Users/8amps/Wawona/UTM";
+    wwn-utm.inputs.nixpkgs.follows = "nixpkgs";
   };
 
-  outputs = { self, nixpkgs, rust-overlay, wwn-toolchain, microvm, ... }:
+  outputs = { self, nixpkgs, rust-overlay, wwn-toolchain, microvm, wwn-utm, ... }:
     let
       darwinSystems = [ "x86_64-darwin" "aarch64-darwin" ];
       linuxSystems = [ "x86_64-linux" "aarch64-linux" ];
@@ -64,6 +66,11 @@
           wearos = dir + "/stub.nix";
         };
       };
+
+      # The aligned UTM fork, surfaced for downstream engine assembly + so the
+      # input is a concrete dependency (mobile/engine.nix + android/engine.nix
+      # take `wwn-utm` and use wwn-utm.lib for the QEMU-TCTI sources/patches).
+      lib.wwn-utm = wwn-utm;
 
       # Bundled minimal NixOS guest for the mobile QEMU-TCTI engine
       # (iOS/iPadOS/visionOS/tvOS). Evaluable everywhere; the kernel/rootfs

@@ -47,9 +47,11 @@ QEMU TCG tuning, warmed translation blocks. No JIT is attempted (App Store rule)
   `nixosConfigurations.wawona-mobile-guest`; kernel/rootfs build on the
   aarch64-linux builder and ship as bundled / On-Demand-Resource **data**.
 - `dependencies/vms/mobile/engine.nix` - the jitless **QEMU-TCTI** engine recipe.
-  Sourced from `wwn-utm` (no second QEMU vendored here); evaluates cleanly and
-  throws with precise next-steps until `wwn-utm` is aligned + added as an input
-  (align-wwn-utm). TCTI is the honest ceiling (no Hypervisor.framework on iOS).
+  Sourced from `wwn-utm`, now wired as a flake input (`wwn-vms.lib.wwn-utm`;
+  exposes `qemuUtmPatch`, the dependency build scripts, and the UTM SE Xcode
+  scheme). The recipe cross-compiles that through `wwn-toolchain`; it still
+  throws with precise next-steps until the full cross-build lands. TCTI is the
+  honest ceiling (no Hypervisor.framework on iOS).
 
 ## Android engine
 
