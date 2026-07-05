@@ -65,6 +65,14 @@
         };
       };
 
+      # Bundled minimal NixOS guest for the mobile QEMU-TCTI engine
+      # (iOS/iPadOS/visionOS/tvOS). Evaluable everywhere; the kernel/rootfs
+      # artifacts build on the aarch64-linux builder and ship as ODR/bundled data
+      # (COMPLIANCE.md). The engine that boots it is dependencies/vms/mobile/engine.nix
+      # (sourced from wwn-utm; see align-wwn-utm).
+      nixosConfigurations.wawona-mobile-guest =
+        import ./dependencies/vms/mobile/guest.nix { inherit nixpkgs; };
+
       formatter = forAll (system: (pkgsFor system).nixfmt-rfc-style);
     };
 }

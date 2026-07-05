@@ -39,6 +39,18 @@ Honest ceiling is TCTI (no acceleration for store apps). Documented levers:
 lightest NixOS profile, GUI over waypipe+vsock (not emulated GPU/framebuffer),
 QEMU TCG tuning, warmed translation blocks. No JIT is attempted (App Store rule).
 
+## Mobile engine (iOS / iPadOS / visionOS / tvOS)
+
+- `dependencies/vms/mobile/guest.nix` - a bundled minimal NixOS aarch64-linux
+  guest (headless cage + foot, waypipe over vsock, `pixman` software rendering,
+  trimmed closure for the mobile RAM ceiling). Exposed as
+  `nixosConfigurations.wawona-mobile-guest`; kernel/rootfs build on the
+  aarch64-linux builder and ship as bundled / On-Demand-Resource **data**.
+- `dependencies/vms/mobile/engine.nix` - the jitless **QEMU-TCTI** engine recipe.
+  Sourced from `wwn-utm` (no second QEMU vendored here); evaluates cleanly and
+  throws with precise next-steps until `wwn-utm` is aligned + added as an input
+  (align-wwn-utm). TCTI is the honest ceiling (no Hypervisor.framework on iOS).
+
 ## Port plan
 
 1. Consume `wwn-toolchain` cross toolchains (`buildForIOS`, `buildForMacOS`,
