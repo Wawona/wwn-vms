@@ -51,6 +51,13 @@ QEMU TCG tuning, warmed translation blocks. No JIT is attempted (App Store rule)
   throws with precise next-steps until `wwn-utm` is aligned + added as an input
   (align-wwn-utm). TCTI is the honest ceiling (no Hypervisor.framework on iOS).
 
+## Android engine
+
+`dependencies/vms/android/engine.nix` - QEMU with **TCG + JIT** (JIT is allowed
+on Android, so this beats the iOS TCTI ceiling) plus opportunistic AVF/KVM where
+the device exposes it. Cross-compiled from `wwn-utm` through `wwn-toolchain`'s
+Android NDK toolchain; boots the same `mobile/guest.nix`. Play-Store compliant.
+
 ## Port plan
 
 1. Consume `wwn-toolchain` cross toolchains (`buildForIOS`, `buildForMacOS`,
