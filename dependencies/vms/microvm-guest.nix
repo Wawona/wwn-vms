@@ -171,8 +171,9 @@ nixpkgs.lib.nixosSystem {
             # mode) forwards that to the host-side unix socket. The forwarded
             # command must be a Wayland *client* (foot), whose window appears in
             # Wawona as a native window.
+            # Set WAYPIPE_DEBUG=1 (via the unit env) to add --debug for tracing.
             exec ${pkgs.waypipe}/bin/waypipe \
-              --debug \
+              ''${WAYPIPE_DEBUG:+--debug} \
               --vsock -s ${toString vsockPort} \
               server -- ${pkgs.foot}/bin/foot
           '';
