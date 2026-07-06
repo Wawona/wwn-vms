@@ -1035,7 +1035,11 @@ export NCPU
 # Export tools
 CC="$(xcrun --sdk $SDK --find gcc) $CFLAGS_TARGET"
 CPP=$(xcrun --sdk $SDK --find gcc)" -E"
-CXX=$(xcrun --sdk $SDK --find g++)
+# Wawona fix: CXX must carry the -target triple like CC does. libtool records
+# bare $CXX and links C++ dylibs with it (CXXFLAGS not applied to the dylib
+# link), so without this the link targets macOS while the objects are iOS.
+# Xcode <=16 ld only warned; Xcode 26 ld errors out.
+CXX="$(xcrun --sdk $SDK --find g++) $CFLAGS_TARGET"
 OBJCC=$(xcrun --sdk $SDK --find clang)
 LD=$(xcrun --sdk $SDK --find ld)
 AR=$(xcrun --sdk $SDK --find ar)
