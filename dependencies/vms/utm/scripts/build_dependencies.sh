@@ -520,7 +520,10 @@ build () {
     pwd="$(pwd)"
 
     cd "$DIR"
-    if [ -z "$REBUILD" ]; then
+    # Wawona fix: also configure under -r when this dep was never successfully
+    # configured (resume after a mid-chain failure). config.status covers
+    # autotools; build/config.status covers QEMU (only written on success).
+    if [ -z "$REBUILD" ] || { [ ! -f config.status ] && [ ! -f build/config.status ]; }; then
         echo "${GREEN}Configuring ${NAME}...${NC}"
         ./configure --prefix="$PREFIX" --host="$CHOST" $@
     fi
@@ -555,7 +558,10 @@ meson_cross_build () {
     fi
 
     cd "$SRCDIR"
-    if [ -z "$REBUILD" ]; then
+    # Wawona fix: also (re)configure under -r when this dep was never
+    # configured (resume after a mid-chain failure would otherwise die with
+    # "not a meson build directory").
+    if [ -z "$REBUILD" ] || [ ! -d utm_build ]; then
         rm -rf utm_build
         echo "${GREEN}Configuring ${NAME}...${NC}"
         meson utm_build --prefix="$PREFIX" --buildtype="$buildtype" --cross-file "$MESON_CROSS" "$@"
@@ -595,7 +601,8 @@ cmake_build () {
 
     cd "$SRCDIR"
 
-    if [ -z "$REBUILD" ]; then
+    # Wawona fix: same resume-after-failure behavior as meson_cross_build.
+    if [ -z "$REBUILD" ] || [ ! -d "$BUILDDIR" ]; then
         rm -rf "$BUILDDIR"
         mkdir -p "$BUILDDIR"
 
@@ -621,6 +628,9 @@ build_angle () {
     export PATH="$(realpath "$BUILD_DIR/depot_tools.git"):$OLD_PATH"
     pwd="$(pwd)"
     cd "$BUILD_DIR/WebKit.git/Source/ThirdParty/ANGLE"
+    # Wawona fix: Xcode 26's clang added new warnings (-Wunnecessary-virtual-
+    # specifier, -Wnontrivial-memcall, ...) that the pinned ANGLE checkout trips
+    # under -Werror. -Wno-error (appended last, so it wins) keeps them warnings.
     env -i PATH=$PATH xcodebuild archive -archivePath "ANGLE" \
                                          -scheme "ANGLE" \
                                          -sdk $SDK \
@@ -631,7 +641,11 @@ build_angle () {
                                          CODE_SIGNING_ALLOWED=NO \
                                          IPHONEOS_DEPLOYMENT_TARGET="14.0" \
                                          MACOSX_DEPLOYMENT_TARGET="11.0" \
-                                         XROS_DEPLOYMENT_TARGET="1.0"
+                                         XROS_DEPLOYMENT_TARGET="1.0" \
+                                         WARNING_CFLAGS='$(inherited) -Wno-error' \
+                                         OTHER_CFLAGS='$(inherited) -Wno-error' \
+                                         OTHER_CPLUSPLUSFLAGS='$(inherited) -Wno-error' \
+                                         GCC_TREAT_WARNINGS_AS_ERRORS=NO
     rsync -a "ANGLE.xcarchive/Products/usr/local/lib/" "$PREFIX/lib"
     rsync -a "include/" "$PREFIX/include"
     cd "$pwd"
@@ -767,10 +781,17 @@ build_mesa_host () {
     pushd "$BUILD_DIR/mesa.git"
 
     HOST_PATH="$(brew --prefix llvm)/bin:$CLEAN_PATH"
-    env -i PATH="$HOST_PATH" meson host_build --prefix="$PREFIX/host" --buildtype=release \
+    # Wawona fixes for non-Homebrew (nix) hosts:
+    #   * pass PKG_CONFIG_PATH through env -i so libclc & co. are findable;
+    #   * compile the host mesa-clc with Xcode's clang + macOS SDK (the nix
+    #     unwrapped clang on PATH cannot find -lSystem), while llvm-config on
+    #     HOST_PATH still supplies the LLVM/clang libraries.
+    MESA_HOST_SDKROOT="$(env -u SDKROOT xcrun --sdk macosx --show-sdk-path)"
+    MESA_HOST_ENV="PATH=$HOST_PATH PKG_CONFIG_PATH=${MESA_HOST_PKG_CONFIG_PATH:-} SDKROOT=$MESA_HOST_SDKROOT CC=/usr/bin/cc CXX=/usr/bin/c++ OBJC=/usr/bin/clang"
+    env -i $MESA_HOST_ENV meson host_build --prefix="$PREFIX/host" --buildtype=release \
         -Dllvm=enabled -Dstrip=true -Dopengl=false -Dgallium-drivers= -Dvulkan-drivers= -Dmesa-clc=enabled -Dinstall-mesa-clc=true
-    env -i PATH="$HOST_PATH" meson compile -C host_build -j $NCPU
-    env -i PATH="$HOST_PATH" meson install -C host_build
+    env -i $MESA_HOST_ENV meson compile -C host_build -j $NCPU
+    env -i $MESA_HOST_ENV meson install -C host_build
 
     popd
 }
@@ -1099,6 +1120,13 @@ mkdir -p "$PREFIX/Frameworks"
 copy_private_headers
 build_pkg_config
 build_qemu_dependencies
+# Wawona fix: for mobile targets, mark the host machine as needing an exe
+# wrapper so meson (QEMU's bundled copy) doesn't try to execute iOS/visionOS
+# test binaries on the macOS host. Older macOS could exec same-arch iOS CLI
+# binaries so UTM never hit this; macOS 26 refuses ("not runnable").
+if [ "$PLATFORM" != "macos" ] && ! grep -q "needs_exe_wrapper" "$QEMU_DIR/configure"; then
+    perl -i -pe 's/^(  echo "\[properties\]" >> \$cross)$/$1\n  echo "needs_exe_wrapper = true" >> \$cross/' "$QEMU_DIR/configure"
+fi
 build $QEMU_DIR --cross-prefix="" $QEMU_PLATFORM_BUILD_FLAGS $QEMU_DEBUG_FLAGS
 build_spice_client
 build_vulkan_drivers
