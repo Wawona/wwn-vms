@@ -1127,7 +1127,7 @@ build_qemu_dependencies
 if [ "$PLATFORM" != "macos" ] && ! grep -q "needs_exe_wrapper" "$QEMU_DIR/configure"; then
     perl -i -pe 's/^(  echo "\[properties\]" >> \$cross)$/$1\n  echo "needs_exe_wrapper = true" >> \$cross/' "$QEMU_DIR/configure"
 fi
-build $QEMU_DIR --cross-prefix="" $QEMU_PLATFORM_BUILD_FLAGS $QEMU_DEBUG_FLAGS
+build $QEMU_DIR --cross-prefix="" --objcc="$OBJCC" $QEMU_PLATFORM_BUILD_FLAGS $QEMU_DEBUG_FLAGS
 build_spice_client
 build_vulkan_drivers
 fixup_all
