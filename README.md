@@ -1,5 +1,10 @@
 # wwn-vms
 
+> **Moved.** New work lives in [Wawona Relay](https://github.com/Wawona/Relay).
+> L4 flake input is `wwn-relay`. Do not add QEMU or UTM here.
+
+# wwn-vms (legacy)
+
 [![CI](https://github.com/Wawona/wwn-vms/actions/workflows/ci.yml/badge.svg)](https://github.com/Wawona/wwn-vms/actions/workflows/ci.yml)
 [![Guest artifacts](https://github.com/Wawona/wwn-vms/actions/workflows/guest-artifacts.yml/badge.svg)](https://github.com/Wawona/wwn-vms/actions/workflows/guest-artifacts.yml)
 
