@@ -49,6 +49,7 @@ fn main() {
         std::process::exit(1);
     });
     guest.vsock_socket = vsock;
+    guest.vsock_peer_ready = guest.vsock_socket.is_some();
 
     let accel = preferred_accel(mode_b_jit);
     let arch = default_guest_arch();

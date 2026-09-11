@@ -31,6 +31,8 @@ CHOST=
 SDK=
 SDKMINVER=
 CLEAN_PATH="$PATH"
+PYTHON3=
+MESON_BIN=
 DEBUG=
 
 command -v realpath >/dev/null 2>&1 || realpath() {
@@ -199,6 +201,7 @@ copy_private_headers() {
     fi
     echo "${GREEN}Copying private headers...${NC}"
     mkdir -p "$OUTPUT_INCLUDES"
+    rm -rf "$OUTPUT_INCLUDES/IOKit" "$OUTPUT_INCLUDES/libkern"
     cp -r "$IOKIT_HEADERS_PATH" "$OUTPUT_INCLUDES/IOKit"
     rm "$OUTPUT_INCLUDES/IOKit/storage/IOMedia.h" # needed to pass QEMU check
     # patch headers
@@ -237,7 +240,7 @@ generate_meson_cross() {
     echo "pkgconfig = ['$PREFIX/host/bin/pkg-config']" >> $cross
     echo "ranlib = [$(meson_quote $RANLIB)]" >> $cross
     echo "strip = [$(meson_quote $STRIP), '-x']" >> $cross
-    echo "python = ['$(which python3)']" >> $cross
+    echo "python = ['${PYTHON3:-$(command -v python3)}']" >> $cross
     echo "glib-mkenums = ['$(which glib-mkenums)']" >> $cross
     echo "glib-compile-resources = ['$(which glib-compile-resources)']" >> $cross
     echo "[host_machine]" >> $cross
@@ -387,7 +390,7 @@ generate_cmake_toolchain() {
     #
     # Python (for find_package(Python3))
     #
-    echo "set(Python3_EXECUTABLE \"$(which python3)\")" >> "$toolchain"
+    echo "set(Python3_EXECUTABLE \"${PYTHON3:-$(command -v python3)}\")" >> "$toolchain"
     echo "" >> "$toolchain"
 
     #
@@ -495,7 +498,7 @@ build_openssl() {
     fi
 
     cd "$DIR"
-    if [ -z "$REBUILD" ]; then
+    if [ -z "$REBUILD" ] || [ ! -f Makefile ]; then
         echo "${GREEN}Configuring ${NAME}...${NC}"
         ./Configure $OPENSSL_CROSS no-dso no-hw no-engine --prefix="$PREFIX" $DEBUG_FLAGS $@
     fi
@@ -564,12 +567,12 @@ meson_cross_build () {
     if [ -z "$REBUILD" ] || [ ! -d utm_build ]; then
         rm -rf utm_build
         echo "${GREEN}Configuring ${NAME}...${NC}"
-        meson utm_build --prefix="$PREFIX" --buildtype="$buildtype" --cross-file "$MESON_CROSS" "$@"
+        "$MESON_BIN" utm_build --prefix="$PREFIX" --buildtype="$buildtype" --cross-file "$MESON_CROSS" "$@"
     fi
     echo "${GREEN}Building ${NAME}...${NC}"
-    meson compile -C utm_build -j $NCPU
+    "$MESON_BIN" compile -C utm_build -j $NCPU
     echo "${GREEN}Installing ${NAME}...${NC}"
-    meson install -C utm_build
+    "$MESON_BIN" install -C utm_build
     cd "$pwd"
 }
 
@@ -631,7 +634,9 @@ build_angle () {
     # Wawona fix: Xcode 26's clang added new warnings (-Wunnecessary-virtual-
     # specifier, -Wnontrivial-memcall, ...) that the pinned ANGLE checkout trips
     # under -Werror. -Wno-error (appended last, so it wins) keeps them warnings.
-    env -i PATH=$PATH xcodebuild archive -archivePath "ANGLE" \
+    env -i PATH="$PATH" HOME="$HOME" TMPDIR="${TMPDIR:-/tmp}" \
+        xcodebuild archive -archivePath "ANGLE" \
+                                         -derivedDataPath "$pwd/$BUILD_DIR/angle-derived-data" \
                                          -scheme "ANGLE" \
                                          -sdk $SDK \
                                          -arch $ARCH \
@@ -668,7 +673,11 @@ build_hypervisor () {
     esac
 
     echo "${GREEN}Building Hypervisor...${NC}"
-    env -i PATH=$PATH xcodebuild archive -archivePath "Hypervisor" -scheme "$scheme" -sdk $SDK -configuration "$BUILD_CONFIGURATION"
+    env -i PATH="$PATH" HOME="$HOME" TMPDIR="${TMPDIR:-/tmp}" \
+        xcodebuild archive -archivePath "Hypervisor" \
+                           -derivedDataPath "$pwd/$BUILD_DIR/hypervisor-derived-data" \
+                           -scheme "$scheme" -sdk $SDK \
+                           -configuration "$BUILD_CONFIGURATION"
 
     rsync -a "Hypervisor.xcarchive/Products/Library/Frameworks/" "$PREFIX/Frameworks"
     cd "$pwd"
@@ -766,8 +775,39 @@ build_moltenvk() {
         MVK_PLATFORM="macos"
         ;;
     esac
-    env -i PATH=$PATH HOME=$HOME LANG=en_US.UTF-8 ./fetchDependencies --$MVK_PLATFORM -v
-    env -i PATH=$PATH HOME=$HOME LANG=en_US.UTF-8 make $MVK_PLATFORM$DEBUG_FLAGS
+    MVK_HOME="${HOME:-}"
+    if [ -z "$MVK_HOME" ] || [ "$MVK_HOME" = /var/empty ] || [ ! -w "$MVK_HOME" ]; then
+        MVK_HOME="$(pwd)/.mvk-home"
+    fi
+    # xcodebuild uses getpwuid(_nixbld1) -> /var/empty, not $HOME.
+    # ExternalDependencies already sets its own intermediates path; MoltenVKPackaging
+    # `clean`/`build` still write DerivedData under the passwd home and fail.
+    MVK_DD="$(pwd)/.mvk-derived"
+    MVK_BIN="$(pwd)/.mvk-bin"
+    MVK_XCB="$(command -v xcodebuild)"
+    mkdir -p "$MVK_HOME/Library/Developer/Xcode/DerivedData" \
+             "$MVK_HOME/Library/Developer/CoreSimulator/Devices" \
+             "$MVK_DD" \
+             "$MVK_BIN"
+    cat > "$MVK_BIN/xcodebuild" <<EOF
+#!/bin/sh
+exec "$MVK_XCB" -derivedDataPath "$MVK_DD" "\$@"
+EOF
+    chmod +x "$MVK_BIN/xcodebuild"
+    env -i \
+        PATH="$MVK_BIN:$PATH" \
+        HOME="$MVK_HOME" \
+        TMPDIR="${TMPDIR:-/tmp}" \
+        LANG=en_US.UTF-8 \
+        DEVELOPER_DIR="${DEVELOPER_DIR:-}" \
+        ./fetchDependencies --$MVK_PLATFORM -v
+    env -i \
+        PATH="$MVK_BIN:$PATH" \
+        HOME="$MVK_HOME" \
+        TMPDIR="${TMPDIR:-/tmp}" \
+        LANG=en_US.UTF-8 \
+        DEVELOPER_DIR="${DEVELOPER_DIR:-}" \
+        make $MVK_PLATFORM$DEBUG_FLAGS
     if [ "$PLATFORM" == "macos" ]; then
         $(xcrun --sdk $SDK --find lipo) "Package/$BUILD_CONFIGURATION/MoltenVK/dylib/macOS/libMoltenVK.dylib" -extract $ARCH -output "$PREFIX/lib/libMoltenVK.dylib"
     else
@@ -780,18 +820,23 @@ build_moltenvk() {
 build_mesa_host () {
     pushd "$BUILD_DIR/mesa.git"
 
-    HOST_PATH="$(brew --prefix llvm)/bin:$CLEAN_PATH"
+    if [ -z "${MESA_HOST_PKG_CONFIG_PATH:-}" ]; then
+        echo "${RED}MESA_HOST_PKG_CONFIG_PATH is empty. Host mesa cannot find xrandr/libclc.${NC}" >&2
+        exit 1
+    fi
+    HOST_LLVM_PREFIX="${WWN_LLVM_HOST_PREFIX:-$(brew --prefix llvm)}"
+    HOST_PATH="$(dirname "$PYTHON3"):$HOST_LLVM_PREFIX/bin:$CLEAN_PATH"
     # Wawona fixes for non-Homebrew (nix) hosts:
     #   * pass PKG_CONFIG_PATH through env -i so libclc & co. are findable;
     #   * compile the host mesa-clc with Xcode's clang + macOS SDK (the nix
     #     unwrapped clang on PATH cannot find -lSystem), while llvm-config on
     #     HOST_PATH still supplies the LLVM/clang libraries.
     MESA_HOST_SDKROOT="$(env -u SDKROOT xcrun --sdk macosx --show-sdk-path)"
-    MESA_HOST_ENV="PATH=$HOST_PATH PKG_CONFIG_PATH=${MESA_HOST_PKG_CONFIG_PATH:-} SDKROOT=$MESA_HOST_SDKROOT CC=/usr/bin/cc CXX=/usr/bin/c++ OBJC=/usr/bin/clang"
-    env -i $MESA_HOST_ENV meson host_build --prefix="$PREFIX/host" --buildtype=release \
+    MESA_HOST_ENV="PATH=$HOST_PATH PYTHONPATH=$PYTHONPATH PKG_CONFIG_PATH=${MESA_HOST_PKG_CONFIG_PATH:-} SDKROOT=$MESA_HOST_SDKROOT CC=/usr/bin/cc CXX=/usr/bin/c++ OBJC=/usr/bin/clang"
+    env -i $MESA_HOST_ENV "$MESON_BIN" host_build --prefix="$PREFIX/host" --buildtype=release \
         -Dllvm=enabled -Dstrip=true -Dopengl=false -Dgallium-drivers= -Dvulkan-drivers= -Dmesa-clc=enabled -Dinstall-mesa-clc=true
-    env -i $MESA_HOST_ENV meson compile -C host_build -j $NCPU
-    env -i $MESA_HOST_ENV meson install -C host_build
+    env -i $MESA_HOST_ENV "$MESON_BIN" compile -C host_build -j $NCPU
+    env -i $MESA_HOST_ENV "$MESON_BIN" install -C host_build
 
     popd
 }
@@ -990,6 +1035,9 @@ ios* | visionos* )
         ;;
     esac
     QEMU_PLATFORM_BUILD_FLAGS="--enable-shared-lib --disable-cocoa --disable-coreaudio --disable-slirp-smbd --enable-ucontext --with-coroutine=libucontext $HVF_FLAGS $TCI_BUILD_FLAGS"
+    if [ -n "${WWN_QEMU_TARGET_LIST:-}" ]; then
+        QEMU_PLATFORM_BUILD_FLAGS="$QEMU_PLATFORM_BUILD_FLAGS --target-list=$WWN_QEMU_TARGET_LIST"
+    fi
     ;;
 macos )
     if [ -z "$SDKMINVER" ]; then
@@ -1099,20 +1147,43 @@ export OBJCFLAGS
 export LDFLAGS
 
 check_env
+MESON_BIN="$(command -v meson)"
+# Honor PYTHON3 from the utm-engine shell. Do not replace it with
+# sysconfig BINDIR of whichever python3 is first on PATH (engine-pack
+# puts Apple /usr/bin/python3 3.9 ahead of nix). TCI gadget gen needs
+# 3.10+ (`match`).
+if [ -z "${PYTHON3:-}" ] || [ ! -x "${PYTHON3:-}" ]; then
+    PYTHON3="$(command -v python3)"
+fi
+"$PYTHON3" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 1)' \
+    || { echo "${RED}TCI gadget gen needs Python 3.10+ (got $($PYTHON3 -V 2>&1)). Set PYTHON3 to the nix utm-engine interpreter.${NC}" >&2; exit 1; }
+PYTHON3_SITE="$("$PYTHON3" -c 'import site; print(site.getsitepackages()[0])')"
+PYTHON3_SITE_COPY="$(pwd)/$BUILD_DIR/host-python-site"
+if [ -d "$PYTHON3_SITE_COPY" ]; then
+    chmod -R u+w "$PYTHON3_SITE_COPY"
+fi
+rm -rf "$PYTHON3_SITE_COPY"
+mkdir -p "$PYTHON3_SITE_COPY"
+cp -RP "$PYTHON3_SITE/." "$PYTHON3_SITE_COPY/"
+PYTHONPATH="$PYTHON3_SITE_COPY${PYTHONPATH:+:$PYTHONPATH}"
+export MESON_BIN PYTHON3 PYTHONPATH
+"$PYTHON3" -c 'import pyparsing'
 echo "${GREEN}Starting build for ${PLATFORM_FAMILY_NAME} ${ARCH} [${NCPU} jobs]${NC}"
 
-if [ ! -f "$BUILD_DIR/BUILD_SUCCESS" ]; then
-    if [ ! -z "$REBUILD" ]; then
-        echo "${RED}Error, no previous successful build found.${NC}"
-        exit 1
-    fi
+if [ ! -z "$REBUILD" ] && [ ! -d "$BUILD_DIR" ]; then
+    echo "${RED}Error, no previous build tree found.${NC}"
+    exit 1
 fi
 
 if [ -z "$REBUILD" ]; then
     download_all
 fi
-echo "${GREEN}Deleting old sysroot!${NC}"
-rm -rf "$PREFIX/"*
+if [ -z "$REBUILD" ]; then
+    echo "${GREEN}Deleting old sysroot!${NC}"
+    rm -rf "$PREFIX/"*
+else
+    echo "${GREEN}Retaining partial sysroot for resumed build.${NC}"
+fi
 rm -f "$BUILD_DIR/BUILD_SUCCESS"
 rm -f "$BUILD_DIR/meson*.cross"
 rm -f "$BUILD_DIR/cross.cmake"

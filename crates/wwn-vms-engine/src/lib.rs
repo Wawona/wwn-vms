@@ -90,6 +90,9 @@ pub struct GuestPaths {
     pub rootfs: PathBuf,
     /// Optional vsock unix socket path for waypipe.
     pub vsock_socket: Option<PathBuf>,
+    /// Set only when `wwn-vsock-peer` is listening on `vsock_socket`.
+    /// Never pass `vhost-user-vsock-pci` without that peer.
+    pub vsock_peer_ready: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -186,28 +189,60 @@ pub fn build_launch_spec(
     let mut argv = Vec::new();
     argv.push(qemu_bin.display().to_string());
     argv.push("-machine".into());
-    argv.push(arch.machine(accel));
-    argv.push("-cpu".into());
-    argv.push(arch.cpu(accel).into());
+    if cfg!(target_os = "ios") {
+        // Do not also pass -machine accel=. QEMU rejects that mix.
+        argv.push("virt".into());
+        argv.push("-accel".into());
+        argv.push("tcg,split-wx=on,tb-size=64".into());
+        argv.push("-cpu".into());
+        argv.push("cortex-a72".into());
+    } else {
+        argv.push(arch.machine(accel));
+        argv.push("-cpu".into());
+        argv.push(arch.cpu(accel).into());
+    }
     argv.push("-m".into());
     argv.push(memory_mb.max(256).to_string());
     argv.push("-kernel".into());
     argv.push(guest.kernel.display().to_string());
     argv.push("-drive".into());
-    argv.push(format!(
-        "file={},if=virtio,format=raw",
-        guest.rootfs.display()
-    ));
-    argv.push("-device".into());
-    argv.push("virtio-rng-pci".into());
-    if let Some(vsock) = &guest.vsock_socket {
-        argv.push("-chardev".into());
+    if cfg!(target_os = "ios") {
         argv.push(format!(
-            "socket,path={},server=on,wait=off,id=vsock0",
-            vsock.display()
+            "file={},if=none,id=vda,format=raw",
+            guest.rootfs.display()
         ));
         argv.push("-device".into());
-        argv.push("vhost-user-vsock-pci,chardev=vsock0".into());
+        argv.push("virtio-blk-pci,drive=vda".into());
+        argv.push("-append".into());
+        argv.push("root=/dev/vda rw console=ttyAMA0 console=hvc0".into());
+        argv.push("-device".into());
+        argv.push("virtio-serial-pci".into());
+        argv.push("-chardev".into());
+        argv.push("file,id=hvc0,path=/tmp/wwn-modeb-qemu-hvc.log".into());
+        argv.push("-device".into());
+        argv.push("virtconsole,chardev=hvc0".into());
+        argv.push("-serial".into());
+        argv.push("file:/tmp/wwn-modeb-qemu-serial.log".into());
+        argv.push("-monitor".into());
+        argv.push("none".into());
+    } else {
+        argv.push(format!(
+            "file={},if=virtio,format=raw",
+            guest.rootfs.display()
+        ));
+        argv.push("-device".into());
+        argv.push("virtio-rng-pci".into());
+    }
+    if let Some(vsock) = &guest.vsock_socket {
+        if guest.vsock_peer_ready {
+            argv.push("-chardev".into());
+            argv.push(format!(
+                "socket,path={},server=on,wait=off,id=vsock0",
+                vsock.display()
+            ));
+            argv.push("-device".into());
+            argv.push("vhost-user-vsock-pci,chardev=vsock0".into());
+        }
     }
     argv.push("-nographic".into());
     argv.push("-no-reboot".into());
@@ -230,7 +265,7 @@ pub fn discover_guest(guest_dir: &Path) -> Option<GuestPaths> {
         return None;
     }
     let mut kernel = None;
-    for name in ["Image", "zImage", "vmlinuz", "vmlinux"] {
+    for name in ["Image", "Image.vm", "zImage", "vmlinuz", "vmlinux"] {
         let p = guest_dir.join(name);
         if p.is_file() {
             kernel = Some(p);
@@ -242,6 +277,7 @@ pub fn discover_guest(guest_dir: &Path) -> Option<GuestPaths> {
         kernel,
         rootfs,
         vsock_socket: None,
+        vsock_peer_ready: false,
     })
 }
 

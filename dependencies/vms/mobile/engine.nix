@@ -9,10 +9,11 @@
   self,
   applePlatform ? "ios-tci",
   arch ? "arm64",
+  qemuTargetList ? null,
 }:
 import ./engine-pack.nix {
   inherit pkgs lib utm self;
   system = pkgs.stdenv.hostPlatform.system;
   platform = applePlatform;
-  inherit arch;
+  inherit arch qemuTargetList;
 }

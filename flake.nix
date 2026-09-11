@@ -119,6 +119,7 @@
           pythonEnv = pkgs.python3.withPackages (ps: with ps; [
             six
             pyparsing
+            tomli
             setuptools
             pyyaml
             distlib
@@ -152,13 +153,20 @@
               chmod +x $out/bin/llvm-config
             '';
           };
+          spirvLlvmTranslatorStatic =
+            pkgs.spirv-llvm-translator.overrideAttrs (old: {
+              cmakeFlags = (old.cmakeFlags or [ ]) ++ [ "-DBUILD_SHARED_LIBS=NO" ];
+              postInstall = ''
+                install -D tools/llvm-spirv/llvm-spirv $out/bin/llvm-spirv
+              '';
+            });
           mesaHostPkgConfigPath = pkgs.lib.concatStringsSep ":" (
             pkgs.lib.concatMap (p: [ "${p}/lib/pkgconfig" "${p}/share/pkgconfig" ]) [
               pkgs.libclc.dev
               pkgs.libclc
               pkgs.spirv-tools.dev
               pkgs.spirv-tools
-              pkgs.spirv-llvm-translator
+              spirvLlvmTranslatorStatic
               # X11 stack for mesa's host build (same role as Homebrew's
               # libxcb/libxrandr in UTM's check_env).
               pkgs.libxcb.dev
@@ -179,7 +187,7 @@
             if [ "$1" = "--prefix" ]; then
               case "''${2:-}" in
                 llvm) echo "${llvmHost}" ;;
-                spirv-llvm-translator) echo "${pkgs.spirv-llvm-translator}" ;;
+                spirv-llvm-translator) echo "${spirvLlvmTranslatorStatic}" ;;
                 libxcb) echo "${pkgs.libxcb.dev}" ;;
                 libxrandr) echo "${pkgs.libxrandr.dev}" ;;
                 *) echo "brew shim: unknown package ''${2:-}" >&2; exit 1 ;;
@@ -209,6 +217,7 @@
               pkgs.glslang
               pkgs.spirv-tools
             ];
+            WWN_LLVM_HOST_PREFIX = llvmHost;
             MESA_HOST_PKG_CONFIG_PATH = mesaHostPkgConfigPath;
             shellHook = ''
               # The script drives Apple SDKs (iphoneos/xros/...) via xcrun; nix's
@@ -224,7 +233,16 @@
               mkdir -p "$_bsdbin"
               ln -sf /usr/bin/sed /usr/bin/find /usr/bin/basename /usr/bin/dirname "$_bsdbin/"
               ln -sf /bin/cp /bin/rm /bin/mv /bin/ln /bin/ls /bin/chmod "$_bsdbin/"
-              export PATH="$_bsdbin:$PATH"
+              # engine-pack keeps PATH=/usr/bin first so xcrun works. That
+              # Apple python3 is 3.9; TCI gadget gen uses match (3.10+).
+              export PYTHON3="${pythonEnv}/bin/python3"
+              export PATH="$_bsdbin:${pythonEnv}/bin:$PATH"
+              # nix develop --ignore-env still plants HOME=/var/empty.
+              # MoltenVK xcodebuild writes DerivedData under $HOME.
+              if [ -z "''${HOME:-}" ] || [ "$HOME" = /var/empty ] || [ ! -w "$HOME" ]; then
+                export HOME="$(mktemp -d)/home"
+              fi
+              mkdir -p "$HOME"
               # The nix shell exports PKG_CONFIG_PATH entries for its own .dev
               # packages (glib, libffi, ...) which are macOS builds; the cross
               # build must only see the iOS sysroot's .pc files (the script
@@ -265,6 +283,7 @@
             self = self;
             applePlatform = "ios";
             arch = "arm64";
+            qemuTargetList = "aarch64-softmmu";
           };
         }
         // lib.optionalAttrs (system == "aarch64-linux") {
