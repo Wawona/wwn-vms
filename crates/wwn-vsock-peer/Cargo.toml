@@ -1,0 +1,14 @@
+[package]
+name = "wwn-vsock-peer"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "Userspace vhost-user virtio-vsock peer for iOS Mode B qemu"
+publish = false
+
+[[bin]]
+name = "wwn-vsock-peer"
+path = "src/main.rs"
+
+[dependencies]
+libc = "0.2"

@@ -1,0 +1,14 @@
+[package]
+name = "wwn-qemu-run"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "MH_EXECUTE trampoline: dlopen qemu-*-softmmu.framework and run qemu_init"
+publish = false
+
+[[bin]]
+name = "wwn-qemu-run"
+path = "src/main.rs"
+
+[dependencies]
+libc = "0.2"
